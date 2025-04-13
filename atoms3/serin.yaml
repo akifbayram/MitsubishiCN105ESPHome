@@ -17,7 +17,12 @@ esp32:
     type: arduino
 
 logger:
-    level: INFO  
+    level: INFO 
+
+esp32_improv:
+  authorizer: none
+
+improv_serial: 
 
 api:
 
