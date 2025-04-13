@@ -1,0 +1,140 @@
+
+uart:
+  id: HP_UART
+  baud_rate: 2400
+  tx_pin: GPIO2
+  rx_pin: GPIO1
+  
+web_server:
+  port: 80
+  version: 3
+
+climate:
+- platform: cn105
+  # internal: true
+  id: hp
+  name: ${friendly_name}
+  icon: mdi:heat-pump
+  visual:
+    min_temperature: 15
+    max_temperature: 31
+    temperature_step:
+      target_temperature: 1
+      current_temperature: 0.5
+  remote_temperature_timeout: 30min
+  update_interval: 2s
+  debounce_delay: 100ms
+  vertical_vane_select:
+    icon: mdi:swap-vertical
+    name: Vertical Vane
+    web_server:
+      sorting_weight: 50
+  horizontal_vane_select:
+    icon: mdi:swap-horizontal
+    name: Horizontal Vane
+    web_server:
+      sorting_weight: 60
+  supports:
+    mode: [COOL, HEAT, FAN_ONLY, DRY]
+    fan_mode: [AUTO, QUIET, LOW, MEDIUM, HIGH]
+
+sensor:
+- platform: uptime
+  name: Uptime
+  disabled_by_default: false
+  force_update: false
+  unit_of_measurement: s
+  icon: mdi:timer-outline
+  accuracy_decimals: 0
+  device_class: duration
+  state_class: total_increasing
+  update_interval: 60s
+  internal: true
+
+- platform: template
+  name: Current Temp
+  lambda: |-
+    if (isnan(id(hp).current_temperature)) {
+      return NAN;
+    } else {
+      return id(hp).current_temperature * 9.0 / 5.0 + 32.0;
+    }
+  update_interval: 10s
+  unit_of_measurement: °F
+  accuracy_decimals: 1
+  icon: mdi:thermometer
+  web_server:
+    sorting_weight: 10
+
+number:
+- platform: template
+  icon: mdi:thermometer-auto
+  name: Target Temp
+  min_value: 59
+  max_value: 88
+  step: 1
+  mode: slider
+  set_action:
+    lambda: |-
+      // Convert °F to °C before sending to the heat pump
+      float temp_c = (x - 32.0) * 5.0 / 9.0;
+      id(hp).target_temperature = temp_c;
+  lambda: |-
+    // Return current target temperature in °F
+    return id(hp).target_temperature * 9.0 / 5.0 + 32.0;
+  update_interval: 10s
+  unit_of_measurement: °F
+  web_server:
+    sorting_weight: 20
+
+select:
+- platform: template
+  name: Mode
+  icon: mdi:thermostat-box
+  options:
+  - COOL
+  - HEAT
+  - FAN_ONLY
+  - DRY
+  initial_option: COOL
+  optimistic: true
+  set_action:
+    lambda: |-
+      if (x == "COOL") {
+        id(hp).mode = climate::CLIMATE_MODE_COOL;
+      } else if (x == "HEAT") {
+        id(hp).mode = climate::CLIMATE_MODE_HEAT;
+      } else if (x == "FAN_ONLY") {
+        id(hp).mode = climate::CLIMATE_MODE_FAN_ONLY;
+      } else if (x == "DRY") {
+        id(hp).mode = climate::CLIMATE_MODE_DRY;
+      }
+  web_server:
+    sorting_weight: 30
+
+- platform: template
+  icon: mdi:fan
+  name: Fan Speed
+  options:
+  - AUTO
+  - QUIET
+  - LOW
+  - MEDIUM
+  - HIGH
+  initial_option: AUTO
+  optimistic: true
+  set_action:
+    lambda: |-
+      if (x == "AUTO") {
+        id(hp).fan_mode = climate::CLIMATE_FAN_AUTO;
+      } else if (x == "QUIET") {
+        id(hp).fan_mode = climate::CLIMATE_FAN_QUIET;
+      } else if (x == "LOW") {
+        id(hp).fan_mode = climate::CLIMATE_FAN_LOW;
+      } else if (x == "MEDIUM") {
+        id(hp).fan_mode = climate::CLIMATE_FAN_MEDIUM;
+      } else if (x == "HIGH") {
+        id(hp).fan_mode = climate::CLIMATE_FAN_HIGH;
+      }
+  web_server:
+    sorting_weight: 40
