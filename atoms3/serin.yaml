@@ -44,4 +44,7 @@ dashboard_import:
   import_full_config: false
 
 packages:
-  cn105: !include common/cn105.yaml
+  cn105:
+    url: https://github.com/akifbayram/MitsubishiCN105ESPHome
+    files: [atoms3/common/cn105.yaml]
+    ref: 0.1
