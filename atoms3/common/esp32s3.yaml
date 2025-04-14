@@ -1,0 +1,13 @@
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+uart:
+  id: HP_UART
+  baud_rate: 2400
+  tx_pin: GPIO2
+  rx_pin: GPIO1\
+
+esp32_improv:
+  authorizer: none
