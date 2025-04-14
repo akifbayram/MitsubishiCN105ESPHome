@@ -26,6 +26,9 @@ wifi:
     ssid: "Serin Setup"
     password: "serincn105"
 
+web_server:
+  version: 3
+
 captive_portal:
 
 dashboard_import:
