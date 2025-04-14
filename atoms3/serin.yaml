@@ -1,29 +1,7 @@
 substitutions:
   name: serin-cn105
-  friendly_name: "Serin Heat Pump Controller"
-  
-esphome:
-  name: ${name}
-  friendly_name: ${friendly_name}
-  name_add_mac_suffix: true
+  friendly_name: "Serin Heat Pump Controller" 
 
-  project:
-    name: "serin.cn105"
-    version: "0.1"
-
-esp32:
-  board: esp32-s3-devkitc-1
-  framework:
-    type: arduino
-
-uart:
-  id: HP_UART
-  baud_rate: 2400
-  tx_pin: GPIO2
-  rx_pin: GPIO1
-
-esp32_improv:
-  authorizer: none
 logger:
     level: INFO 
 
@@ -35,148 +13,16 @@ ota:
   - platform: esphome
 
 wifi:
-  ap:
-    ssid: "Serin Setup"
-    password: "serincn105"
 
-web_server:
-  version: 3
-
-captive_portal:
-
+dashboard_import:
+  package_import_url: github://akifbayram/MitsubishiCN105ESPHome/atoms3/serin.yaml
+  import_full_config: false
+  
 external_components:
   - source: github://akifbayram/MitsubishiCN105ESPHome
 
-dashboard_import:
-  package_import_url: github://akifbayram/MitsubishiCN105ESPHome/atoms3/serin.yaml@main
-  import_full_config: false
-
-climate:
-- platform: cn105
-  # internal: true
-  id: hp
-  name: ${friendly_name}
-  icon: mdi:heat-pump
-  visual:
-    min_temperature: 15
-    max_temperature: 31
-    temperature_step:
-      target_temperature: 1
-      current_temperature: 0.5
-  remote_temperature_timeout: 30min
-  update_interval: 2s
-  debounce_delay: 100ms
-  vertical_vane_select:
-    icon: mdi:swap-vertical
-    name: Vertical Vane
-    web_server:
-      sorting_weight: 50
-  horizontal_vane_select:
-    icon: mdi:swap-horizontal
-    name: Horizontal Vane
-    web_server:
-      sorting_weight: 60
-  supports:
-    mode: [COOL, HEAT, FAN_ONLY, DRY]
-    fan_mode: [AUTO, QUIET, LOW, MEDIUM, HIGH]
-
-sensor:
-- platform: uptime
-  name: Uptime
-  disabled_by_default: false
-  force_update: false
-  unit_of_measurement: s
-  icon: mdi:timer-outline
-  accuracy_decimals: 0
-  device_class: duration
-  state_class: total_increasing
-  update_interval: 60s
-  internal: true
-
-- platform: template
-  name: Current Temp
-  lambda: |-
-    if (isnan(id(hp).current_temperature)) {
-      return NAN;
-    } else {
-      return id(hp).current_temperature * 9.0 / 5.0 + 32.0;
-    }
-  update_interval: 10s
-  unit_of_measurement: °F
-  accuracy_decimals: 1
-  icon: mdi:thermometer
-  web_server:
-    sorting_weight: 10
-
-number:
-- platform: template
-  icon: mdi:thermometer-auto
-  name: Target Temp
-  min_value: 59
-  max_value: 88
-  step: 1
-  mode: slider
-  set_action:
-    lambda: |-
-      // Convert °F to °C before sending to the heat pump
-      float temp_c = (x - 32.0) * 5.0 / 9.0;
-      id(hp).target_temperature = temp_c;
-  lambda: |-
-    // Return current target temperature in °F
-    return id(hp).target_temperature * 9.0 / 5.0 + 32.0;
-  update_interval: 10s
-  unit_of_measurement: °F
-  web_server:
-    sorting_weight: 20
-
-select:
-- platform: template
-  name: Mode
-  icon: mdi:thermostat-box
-  options:
-  - COOL
-  - HEAT
-  - FAN_ONLY
-  - DRY
-  initial_option: COOL
-  optimistic: true
-  set_action:
-    lambda: |-
-      if (x == "COOL") {
-        id(hp).mode = climate::CLIMATE_MODE_COOL;
-      } else if (x == "HEAT") {
-        id(hp).mode = climate::CLIMATE_MODE_HEAT;
-      } else if (x == "FAN_ONLY") {
-        id(hp).mode = climate::CLIMATE_MODE_FAN_ONLY;
-      } else if (x == "DRY") {
-        id(hp).mode = climate::CLIMATE_MODE_DRY;
-      }
-  web_server:
-    sorting_weight: 30
-
-- platform: template
-  icon: mdi:fan
-  name: Fan Speed
-  options:
-  - AUTO
-  - QUIET
-  - LOW
-  - MEDIUM
-  - HIGH
-  initial_option: AUTO
-  optimistic: true
-  set_action:
-    lambda: |-
-      if (x == "AUTO") {
-        id(hp).fan_mode = climate::CLIMATE_FAN_AUTO;
-      } else if (x == "QUIET") {
-        id(hp).fan_mode = climate::CLIMATE_FAN_QUIET;
-      } else if (x == "LOW") {
-        id(hp).fan_mode = climate::CLIMATE_FAN_LOW;
-      } else if (x == "MEDIUM") {
-        id(hp).fan_mode = climate::CLIMATE_FAN_MEDIUM;
-      } else if (x == "HIGH") {
-        id(hp).fan_mode = climate::CLIMATE_FAN_HIGH;
-      }
-  web_server:
-    sorting_weight: 40
+packages:
+  cn105: github://akifbayram/MitsubishiCN105ESPHome/atoms3/common/cn105.yaml
+  esp32s3: github://akifbayram/MitsubishiCN105ESPHome/atoms3/common/esp32s3.yaml
+  wifi: github://akifbayram/MitsubishiCN105ESPHome/atoms3/common/wifi.yaml
+  web_server: github://akifbayram/MitsubishiCN105ESPHome/atoms3/common/web_server.yaml
