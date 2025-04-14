@@ -5,8 +5,6 @@ substitutions:
 logger:
     level: INFO 
 
-improv_serial: 
-
 api:
 
 ota:

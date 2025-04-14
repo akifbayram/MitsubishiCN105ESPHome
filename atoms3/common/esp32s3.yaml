@@ -17,6 +17,3 @@ uart:
   baud_rate: 2400
   tx_pin: GPIO2
   rx_pin: GPIO1
-
-esp32_improv:
-  authorizer: none
