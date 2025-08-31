@@ -193,7 +193,7 @@ void CN105Climate::reconnectIfConnectionLost()
         {
             long elapsedResponseSec = (CUSTOM_MILLIS - this->lastResponseMs) / 1000;
             ESP_LOGW(TAG, "Warning: No response from heat pump for %ld seconds.", elapsedResponseSec);
-            ESP_LOGI(TAG, "Heat pump appears to be disconnected. Initiating reconnection procedure.");
+            ESP_LOGI(TAG, "Heat pump disconnected. Attempting reconnection...");
             this->reconnectUART();
         }
     }
