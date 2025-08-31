@@ -109,9 +109,15 @@ const char *CN105Climate::getVaneSetting()
     return (this->wantedSettings.vane) ? this->wantedSettings.vane : this->currentSettings.vane;
 }
 
-const char *CN105Climate::getWideVaneSetting()
-{
-    return (this->wantedSettings.wideVane) ? this->wantedSettings.wideVane : this->currentSettings.wideVane;
+const char* CN105Climate::getWideVaneSetting() {
+    if (this->wantedSettings.wideVane) {
+        if (strcmp(this->wantedSettings.wideVane, lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 8, 0x80 & 0x0F)) == 0 && !this->currentSettings.iSee) {
+            this->wantedSettings.wideVane = this->currentSettings.wideVane;
+        }
+        return this->wantedSettings.wideVane;
+    } else {
+        return this->currentSettings.wideVane;
+    }
 }
 
 const char *CN105Climate::getFanSpeedSetting()
@@ -119,10 +125,15 @@ const char *CN105Climate::getFanSpeedSetting()
     return (this->wantedSettings.fan) ? this->wantedSettings.fan : this->currentSettings.fan;
 }
 
-float CN105Climate::getTemperatureSetting()
-{
-    return (this->wantedSettings.temperature != -1.0) ? this->wantedSettings.temperature : this->currentSettings.temperature;
+float CN105Climate::getTemperatureSetting() {
+    if (this->wantedSettings.temperature != -1.0) {
+        return this->wantedSettings.temperature;
+    } else {
+        return this->currentSettings.temperature;
+    }
 }
+
+
 
 void CN105Climate::createPacket(uint8_t *packet)
 {
@@ -175,11 +186,9 @@ void CN105Climate::createPacket(uint8_t *packet)
         packet[6] += CONTROL_PACKET_1[4];
     }
 
-    if (this->wantedSettings.wideVane != nullptr)
-    {
-        ESP_LOGD(TAG, "Setting wide vane: %s", getWideVaneSetting());
-        packet[18] = WIDEVANE[lookupByteMapIndex(WIDEVANE_MAP, 7, getWideVaneSetting(), "wideVane (write)")] |
-                     (this->wideVaneAdj ? 0x80 : 0x00);
+    if (this->wantedSettings.wideVane != nullptr) {
+        ESP_LOGD(TAG, "heatpump widevane -> %s", getWideVaneSetting());
+        packet[18] = WIDEVANE[lookupByteMapIndex(WIDEVANE_MAP, 7, getWideVaneSetting(), "wideVane (write)")] | (this->wideVaneAdj ? 0x80 : 0x00);
         packet[7] += CONTROL_PACKET_2[0];
     }
 
@@ -219,6 +228,45 @@ void CN105Climate::publishWantedSettingsStateToHA()
     // Update target temperature for Home Assistant.
     this->target_temperature = this->getTemperatureSetting();
     this->publish_state();
+}
+
+void CN105Climate::publishWantedRunStatesStateToHA() {
+    if (this->wantedRunStates.airflow_control != nullptr) {
+        if (this->wantedRunStates.airflow_control == nullptr) {
+            this->wantedRunStates.airflow_control = this->currentRunStates.airflow_control;
+        }
+        if (this->hasChanged(this->airflow_control_select_->state.c_str(), this->wantedRunStates.airflow_control, "select airflow control")) {
+            ESP_LOGI(TAG, "airflow control setting changed");
+            this->airflow_control_select_->publish_state(wantedRunStates.airflow_control);
+        }
+    }
+    if (this->wantedRunStates.air_purifier > -1) {
+        if (this->wantedRunStates.air_purifier == -1) {
+            this->wantedRunStates.air_purifier = this->currentRunStates.air_purifier;
+        }
+        if (this->air_purifier_switch_->state != this->wantedRunStates.air_purifier) {
+            ESP_LOGI(TAG, "air purifier setting changed");
+            this->air_purifier_switch_->publish_state(wantedRunStates.air_purifier);
+        }
+    }
+    if (this->wantedRunStates.night_mode > -1) {
+        if (this->wantedRunStates.night_mode == -1) {
+            this->wantedRunStates.night_mode = this->currentRunStates.night_mode;
+        }
+        if (this->night_mode_switch_->state != this->wantedRunStates.night_mode) {
+            ESP_LOGI(TAG, "night mode setting changed");
+            this->night_mode_switch_->publish_state(wantedRunStates.night_mode);
+        }
+    }
+    if (this->wantedRunStates.circulator > -1) {
+        if (this->wantedRunStates.circulator == -1) {
+            this->wantedRunStates.circulator = this->currentRunStates.circulator;
+        }
+        if (this->circulator_switch_->state != this->wantedRunStates.circulator) {
+            ESP_LOGI(TAG, "circulator setting changed");
+            this->circulator_switch_->publish_state(wantedRunStates.circulator);
+        }
+    }
 }
 
 void CN105Climate::sendWantedSettingsDelegate()
@@ -270,8 +318,9 @@ void CN105Climate::sendWantedSettings()
     }
 }
 
-void CN105Climate::buildAndSendRequestPacket(int packetType)
-{
+
+
+void CN105Climate::buildAndSendRequestPacket(int packetType) {
     uint8_t packet[PACKET_LEN] = {};
     createInfoPacket(packet, packetType);
     this->writePacket(packet, PACKET_LEN);
@@ -355,4 +404,49 @@ void CN105Climate::sendRemoteTemperature()
 
     // Reset the remote temperature sensor timeout.
     this->pingExternalTemperature();
+}
+
+void CN105Climate::sendWantedRunStates() {
+    uint8_t packet[PACKET_LEN] = {};
+    
+    prepareSetPacket(packet, PACKET_LEN);
+    
+    packet[5] = 0x08;
+    if (this->wantedRunStates.airflow_control != nullptr) {
+        ESP_LOGD(TAG, "airflow control -> %s", getAirflowControlSetting());
+        packet[11] = AIRFLOW_CONTROL[lookupByteMapIndex(AIRFLOW_CONTROL_MAP, 3, getAirflowControlSetting(), "run state (write)")];
+        packet[6] += RUN_STATE_PACKET_1[4];
+    }
+    if (this->wantedRunStates.air_purifier > -1) {
+        if (getAirPurifierRunState() != currentRunStates.air_purifier) {
+            ESP_LOGI(TAG, "air purifier switch state -> %s", getAirPurifierRunState() ? "ON" : "OFF");
+            packet[17] = getAirPurifierRunState() ? 0x01 : 0x00;
+            packet[7] += RUN_STATE_PACKET_2[1];
+        }
+    }
+    if (this->wantedRunStates.night_mode > -1) {
+        if (getNightModeRunState() != currentRunStates.night_mode) {
+            ESP_LOGI(TAG, "night mode switch state -> %s", this->getNightModeRunState() ? "ON" : "OFF");
+            packet[18] = getNightModeRunState() ? 0x01 : 0x00;
+            packet[7] += RUN_STATE_PACKET_2[2];
+        }
+    }
+    if (this->wantedRunStates.circulator > -1) {
+        if (getCirculatorRunState() != currentRunStates.circulator) {
+            ESP_LOGI(TAG, "circulator switch state -> %s", getCirculatorRunState() ? "ON" : "OFF");
+            packet[19] = getCirculatorRunState() ? 0x01 : 0x00;
+            packet[7] += RUN_STATE_PACKET_2[3];
+        }
+    }
+    
+    // Add the checksum
+    uint8_t chkSum = checkSum(packet, 21);
+    packet[21] = chkSum;
+    ESP_LOGD(LOG_SET_RUN_STATE, "Sending set run state package (0x08)");
+    writePacket(packet, PACKET_LEN);
+    
+    this->publishWantedRunStatesStateToHA();
+    
+    this->wantedRunStates.resetSettings();
+    this->loopCycle.deferCycle();
 }

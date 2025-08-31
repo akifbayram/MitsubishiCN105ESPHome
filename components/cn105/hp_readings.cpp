@@ -1,5 +1,7 @@
 #include "cn105.h"
 
+#include <map>
+
 using namespace esphome;
 
 /**
@@ -159,9 +161,11 @@ void CN105Climate::getPowerFromResponsePacket() {
     ESP_LOGD("Decoder", "[Auto Mode Sub Mode  : %s]", receivedSettings.auto_sub_mode);
 
     //this->heatpumpUpdate(receivedSettings);
-    if (this->Stage_sensor_ != nullptr && (!this->currentSettings.stage || strcmp(receivedSettings.stage, this->currentSettings.stage) != 0)) {
-        this->currentSettings.stage = receivedSettings.stage;
-        this->Stage_sensor_->publish_state(receivedSettings.stage);
+    if (this->stage_sensor_ != nullptr) {
+        if (!this->currentSettings.stage || strcmp(receivedSettings.stage, this->currentSettings.stage) != 0) {
+            this->currentSettings.stage = receivedSettings.stage;
+            this->stage_sensor_->publish_state(receivedSettings.stage);
+        }
     }
     if (this->Sub_mode_sensor_ != nullptr && (!this->currentSettings.sub_mode || strcmp(receivedSettings.sub_mode, this->currentSettings.sub_mode) != 0)) {
         this->currentSettings.sub_mode = receivedSettings.sub_mode;
@@ -173,12 +177,38 @@ void CN105Climate::getPowerFromResponsePacket() {
     }
 }
 
+// Given a temperature in Celsius that will be converted to Fahrenheit, converts
+// it to the Celsius value corresponding to the the Fahrenheit value that
+// Mitsubishi thermostats would have converted the Celsius value to. For
+// instance, 21.5°C is 70.7°F, but to get it to map to 70°F, this function
+// returns 21.1°C.
+static float mapCelsiusForConversionToFahrenheit(const float c) {
+    static const auto& mapping = [] {
+        auto* const m = new std::map<float, float>{
+            {16.0, 61}, {16.5, 62}, {17.0, 63}, {17.5, 64}, {18.0, 65},
+            {18.5, 66}, {19.0, 67}, {20.0, 68}, {21.0, 69}, {21.5, 70},
+            {22.0, 71}, {22.5, 72}, {23.0, 73}, {23.5, 74}, {24.0, 75},
+            {24.5, 76}, {25.0, 77}, {25.5, 78}, {26.0, 79}, {26.5, 80},
+            {27.0, 81}, {27.5, 82}, {28.0, 83}, {28.5, 84}, {29.0, 85},
+            {29.5, 86}, {30.0, 87}, {30.5, 88}
+        };
+        for (auto& pair : *m) {
+            pair.second = (pair.second - 32.0f) / 1.8f;
+        }
+        return *m;
+        }();
+
+    auto it = mapping.find(c);
+    if (it == mapping.end()) return c;
+    return it->second;
+}
+
 void CN105Climate::getSettingsFromResponsePacket() {
     heatpumpSettings receivedSettings{};
+    heatpumpRunStates receivedRunStates{};
     ESP_LOGD("Decoder", "[0x02 is settings]");
-    //02 00 00 01 08 0A 00 07 00 00 03 AA 00 00 00 00 94
-    //this->last_received_packet_sensor->publish_state("0x62-> 0x02: Data -> Settings");
-    receivedSettings.connected = true;      // we're here so we're connected (actually not used property)
+
+    receivedSettings.connected = true;
     receivedSettings.power = lookupByteMapValue(POWER_MAP, POWER, 2, data[3], "power reading");
     receivedSettings.iSee = data[4] > 0x08 ? true : false;
     receivedSettings.mode = lookupByteMapValue(MODE_MAP, MODE, 5, receivedSettings.iSee ? (data[4] - 0x08) : data[4], "mode reading");
@@ -192,9 +222,11 @@ void CN105Climate::getSettingsFromResponsePacket() {
         temp -= 128;
         receivedSettings.temperature = (float)temp / 2;
         this->tempMode = true;
-        //ESP_LOGD("Decoder", "tempMode is true");
     } else {
         receivedSettings.temperature = lookupByteMapValue(TEMP_MAP, TEMP, 16, data[5], "temperature reading");
+    }
+    if (use_fahrenheit_support_mode_) {
+        receivedSettings.temperature = mapCelsiusForConversionToFahrenheit(receivedSettings.temperature);
     }
 
     ESP_LOGD("Decoder", "[Temp °C: %f]", receivedSettings.temperature);
@@ -205,24 +237,45 @@ void CN105Climate::getSettingsFromResponsePacket() {
     receivedSettings.vane = lookupByteMapValue(VANE_MAP, VANE, 7, data[7], "vane reading");
     ESP_LOGD("Decoder", "[Vane: %s]", receivedSettings.vane);
 
-
-    this->wideVaneAdj = (data[10] & 0xF0) == 0x80 ? true : false;
-    receivedSettings.wideVane = lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 7, data[10] & 0x0F, "wideVane reading");
-    ESP_LOGD("Decoder", "[wideVane: %s (adj:%d)]", receivedSettings.wideVane, this->wideVaneAdj);
-    /*if ((data[10] != 0) && (this->traits_.supports_swing_mode(climate::CLIMATE_SWING_HORIZONTAL))) {    // wideVane is not always supported
-        receivedSettings.wideVane = lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 7, data[10] & 0x0F, "wideVane reading");
-        wideVaneAdj = (data[10] & 0xF0) == 0x80 ? true : false;
-        ESP_LOGD("Decoder", "[wideVane: %s (adj:%d)]", receivedSettings.wideVane, wideVaneAdj);
+    // --- START OF MODIFIED SECTION - Reverted widevane section back to more or less original state
+    if ((data[10] != 0) && (this->traits_.supports_swing_mode(climate::CLIMATE_SWING_HORIZONTAL))) {    // wideVane is not always supported
+        receivedSettings.wideVane = lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 8, data[10] & 0x0F, "wideVane reading");
+        this->wideVaneAdj = (data[10] & 0xF0) == 0x80 ? true : false;        
+        ESP_LOGD("Decoder", "[wideVane: %s (adj:%d)]", receivedSettings.wideVane, this->wideVaneAdj);
     } else {
         ESP_LOGD("Decoder", "widevane is not supported");
-    }*/
+    }
+    // --- END OF MODIFIED SECTION ---
 
     if (this->iSee_sensor_ != nullptr) {
         this->iSee_sensor_->publish_state(receivedSettings.iSee);
     }
 
-    this->heatpumpUpdate(receivedSettings);
+    // --- AIRFLOW CONTROL START
+    if (this->airflow_control_select_ != nullptr) {
+        if (data[10] == 0x80) {
+            if (receivedSettings.iSee) { 
+                receivedRunStates.airflow_control = lookupByteMapValue(AIRFLOW_CONTROL_MAP, AIRFLOW_CONTROL, 3, data[14], "airflow control reading");
+            }
+            else { 
+                // For some reason data[10] is 0x80, but the i-See sensor is not active. 
+                // Some units let us do this, but the real mode is unknown (might be powersave) and the i-See sensor does not get activated.
+                //receivedRunStates.airflow_control = "N/A";
+                ESP_LOGD("Decoder", "i-See sensor not present/active.");
+                receivedRunStates.airflow_control = AIRFLOW_CONTROL_MAP[0];
+            }
+        } else {
+            receivedRunStates.airflow_control = AIRFLOW_CONTROL_MAP[0];
+        }
+        if (!this->currentRunStates.airflow_control || strcmp(receivedRunStates.airflow_control, this->currentRunStates.airflow_control) != 0) {
+            this->currentRunStates.airflow_control = receivedRunStates.airflow_control;
+            this->airflow_control_select_->publish_state(receivedRunStates.airflow_control);
+        }
+    }
+    
+    // --- AIRFLOW CONTROL END
 
+    this->heatpumpUpdate(receivedSettings);
 }
 
 void CN105Climate::getRoomTemperatureFromResponsePacket() {
@@ -240,7 +293,10 @@ void CN105Climate::getRoomTemperatureFromResponsePacket() {
     // RM = indoor unit operating time in minutes
 
     if (data[5] > 1) {
-        receivedStatus.outsideAirTemperature = (float)(data[5] - 128) / 2;
+        receivedStatus.outsideAirTemperature = (data[5] - 128) / 2.0f;
+        if (use_fahrenheit_support_mode_) {
+            receivedStatus.outsideAirTemperature = mapCelsiusForConversionToFahrenheit(receivedStatus.outsideAirTemperature);
+        }
     } else {
         receivedStatus.outsideAirTemperature = NAN;
     }
@@ -248,9 +304,12 @@ void CN105Climate::getRoomTemperatureFromResponsePacket() {
     if (data[6] != 0x00) {
         int temp = data[6];
         temp -= 128;
-        receivedStatus.roomTemperature = (float)temp / 2;
+        receivedStatus.roomTemperature = temp / 2.0f;
     } else {
         receivedStatus.roomTemperature = lookupByteMapValue(ROOM_TEMP_MAP, ROOM_TEMP, 32, data[3]);
+    }
+    if (use_fahrenheit_support_mode_) {
+        receivedStatus.roomTemperature = mapCelsiusForConversionToFahrenheit(receivedStatus.roomTemperature);
     }
 
     receivedStatus.runtimeHours = float((data[11] << 16) | (data[12] << 8) | data[13]) / 60;
@@ -296,6 +355,42 @@ void CN105Climate::getOperatingAndCompressorFreqFromResponsePacket() {
     this->statusChanged(receivedStatus);
 }
 
+void CN105Climate::getHVACOptionsFromResponsePacket() {
+    //MSZ-LN25VG2W
+    //FC 62 01 30 10 42 01 01 01 00 00 00 00 00 00 00 00 00 00 00 00 18
+    //                  AP NM CL
+    // AP = air purifier (1 = on, 0 = off)
+    // NM = night mode (1 = on, 0 = off)
+    // CL = circulator (1 = on, 0 = off) ! MIGHT BE SAME BYTE AS ECONOCOOL - NEEDS TESTING !
+    heatpumpRunStates receivedRunStates{};
+    ESP_LOGD("Decoder", "[0x42 is HVAC options]");
+    
+    if (this->air_purifier_switch_ != nullptr) {
+        receivedRunStates.air_purifier = data[1];
+        ESP_LOGD("Decoder", "[Air purifier : %s]", receivedRunStates.air_purifier ? "ON" : "OFF");
+        if (receivedRunStates.air_purifier != this->currentRunStates.air_purifier || receivedRunStates.air_purifier != this->air_purifier_switch_->state) {
+            this->currentRunStates.air_purifier = receivedRunStates.air_purifier;
+            this->air_purifier_switch_->publish_state(receivedRunStates.air_purifier);
+        }
+    }
+    if (this->night_mode_switch_ != nullptr) {
+        receivedRunStates.night_mode = data[2];
+        ESP_LOGD("Decoder", "[Night mode : %s]", receivedRunStates.night_mode ? "ON" : "OFF");
+        if (receivedRunStates.night_mode != this->currentRunStates.night_mode || receivedRunStates.night_mode != this->night_mode_switch_->state) {
+            this->currentRunStates.night_mode = receivedRunStates.night_mode;
+            this->night_mode_switch_->publish_state(receivedRunStates.night_mode);
+        }
+    }
+    if (this->circulator_switch_ != nullptr) {
+        receivedRunStates.circulator = data[3];
+        ESP_LOGD("Decoder", "[Circulator : %s]", receivedRunStates.circulator ? "ON" : "OFF");
+        if (receivedRunStates.circulator != this->currentRunStates.circulator || receivedRunStates.circulator != this->circulator_switch_->state) {
+            this->currentRunStates.circulator = receivedRunStates.circulator;
+            this->circulator_switch_->publish_state(receivedRunStates.circulator);
+        }
+    }
+}
+
 void CN105Climate::terminateCycle() {
     if (this->shouldSendExternalTemperature_) {
         // We will receive ACK packet for this.
@@ -329,9 +424,16 @@ void CN105Climate::getDataFromResponsePacket() {
         /* room temperature reading */
         ESP_LOGD(LOG_CYCLE_TAG, "3b: Receiving room °C response");
         this->getRoomTemperatureFromResponsePacket();
+        // next step is to get the heatpump extra function status (air purifier, night mode, circulator) case 0x42 if these are enabled in the YAML
+        // or else
         // next step is to get the heatpump status (operating and compressor frequency) case 0x06
-        ESP_LOGD(LOG_CYCLE_TAG, "4a: Sending status request (0x06)");
-        this->buildAndSendRequestPacket(RQST_PKT_STATUS);
+        if (this->air_purifier_switch_ != nullptr || this->night_mode_switch_ != nullptr || this->circulator_switch_ != nullptr) {
+            ESP_LOGD(LOG_CYCLE_TAG, "3c: Sending HVAC options request (0x42)");
+            this->buildAndSendRequestPacket(RQST_PKT_HVAC_OPTIONS);
+        } else {
+            ESP_LOGD(LOG_CYCLE_TAG, "4a: Sending status request (0x06)");
+            this->buildAndSendRequestPacket(RQST_PKT_STATUS);
+        }
         break;
 
     case 0x04:
@@ -381,21 +483,31 @@ void CN105Climate::getDataFromResponsePacket() {
         //this->getAutoModeStateFromResponsePacket();
         break;
 
-    case 0x20:
+    case 0x20: // fallthrough
     case 0x22: {
         ESP_LOGD("Decoder", "[Packet Functions 0x20 et 0x22]");
         //this->last_received_packet_sensor->publish_state("0x62-> 0x20/0x22: Data -> Packet functions");
         if (dataLength == 0x10) {
             if (data[0] == 0x20) {
                 functions.setData1(&data[1]);
+                ESP_LOGI(LOG_CYCLE_TAG, "Got functions packet 1, requesting part 2");
+                this->getFunctionsPart2();
             } else {
                 functions.setData2(&data[1]);
+                ESP_LOGI(LOG_CYCLE_TAG, "Got functions packet 2");
+                this->functionsArrived();
             }
-
         }
-
     }
-             break;
+        break;
+
+    case 0x42:
+        /* HVAC Options */
+        ESP_LOGD(LOG_CYCLE_TAG, "3d: Receiving HVAC options");
+        this->getHVACOptionsFromResponsePacket();
+        ESP_LOGD(LOG_CYCLE_TAG, "4a: Sending status request (0x06)");
+        this->buildAndSendRequestPacket(RQST_PKT_STATUS);
+        break;
 
     default:
         ESP_LOGW("Decoder", "packet type [%02X] <-- unknown and unexpected", data[0]);
@@ -428,6 +540,7 @@ void CN105Climate::processCommand() {
         // let's say that the last complete cycle was over now
         this->loopCycle.lastCompleteCycleMs = CUSTOM_MILLIS;
         this->currentSettings.resetSettings();      // each time we connect, we need to reset current setting to force a complete sync with ha component state and receievdSettings
+        this->currentRunStates.resetSettings();
         break;
     default:
         break;
@@ -504,6 +617,7 @@ void CN105Climate::publishStateToHA(heatpumpSettings& settings) {
     }
 
     this->currentSettings.iSee = settings.iSee;
+    
     this->currentSettings.connected = true;
 
     // publish to HA
@@ -562,7 +676,7 @@ void CN105Climate::checkWideVaneSettings(heatpumpSettings& settings, bool update
 
     /* ******** HANDLE MITSUBISHI VANE CHANGES ********
      * VANE_MAP[7]        = {"AUTO", "1", "2", "3", "4", "5", "SWING"};
-     * WIDEVANE_MAP[7]    = { "<<", "<",  "|",  ">",  ">>", "<>", "SWING" }
+     * WIDEVANE_MAP[8]   = { "<<", "<",  "|",  ">",  ">>", "<>", "SWING", "AIRFLOW CONTROL" }
      */
 
     if (this->hasChanged(currentSettings.wideVane, settings.wideVane, "wideVane")) {    // widevane setting change ?

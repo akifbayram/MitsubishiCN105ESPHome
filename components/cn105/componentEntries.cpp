@@ -44,7 +44,9 @@ void CN105Climate::loop() {
     if (!this->processInput()) {                                            // if we don't get any input: no read op
         if ((this->wantedSettings.hasChanged) && (!this->loopCycle.isCycleRunning())) {
             this->checkPendingWantedSettings();
-        } else {
+        } else if ((this->wantedRunStates.hasChanged) && (!this->loopCycle.isCycleRunning())) {
+            this->checkPendingWantedRunStates();
+        }else {
             if (this->loopCycle.isCycleRunning()) {                         // if we are  running an update cycle
                 this->loopCycle.checkTimeout(this->update_interval_);
             } else { // we are not running a cycle
@@ -63,10 +65,4 @@ void CN105Climate::set_update_interval(uint32_t update_interval) {
 
     this->update_interval_ = update_interval;
     this->autoUpdate = (update_interval != 0);
-}
-
-void CN105Climate::set_remote_temperature(float setting) {
-    this->shouldSendExternalTemperature_ = true;
-    this->remoteTemperature_ = setting;
-    ESP_LOGD(LOG_REMOTE_TEMP, "setting remote temperature to %f", this->remoteTemperature_);
 }

@@ -34,10 +34,15 @@ CN105Climate::CN105Climate(uart::UARTComponent *uart) : UARTDevice(uart)
     // Sensors and components initially not assigned.
     this->horizontal_vane_select_ = nullptr;
     this->vertical_vane_select_ = nullptr;
+    this->airflow_control_select_ = nullptr;
     this->compressor_frequency_sensor_ = nullptr;
     this->input_power_sensor_ = nullptr;
     this->kwh_sensor_ = nullptr;
     this->runtime_hours_sensor_ = nullptr;
+
+    this->air_purifier_switch_ = nullptr;
+    this->night_mode_switch_ = nullptr;
+    this->circulator_switch_ = nullptr;
 
     // Power request not supported on all heat pumps (#112)
     this->powerRequestWithoutResponses = 0;
@@ -47,6 +52,7 @@ CN105Climate::CN105Climate(uart::UARTComponent *uart) : UARTDevice(uart)
     this->generateExtraComponents();
     this->loopCycle.init();
     this->wantedSettings.resetSettings();
+    this->wantedRunStates.resetSettings();
 #ifndef USE_ESP32
     this->wantedSettingsMutex = false;
 #endif
@@ -58,7 +64,7 @@ void CN105Climate::set_baud_rate(int baud)
     ESP_LOGI(TAG, "Baud rate updated to: %d", baud);
 }
 
-void CN105Climate::set_tx_rx_pins(uint8_t tx_pin, uint8_t rx_pin)
+void CN105Climate::set_tx_rx_pins(int tx_pin, int rx_pin)
 {
     this->tx_pin_ = tx_pin;
     this->rx_pin_ = rx_pin;
@@ -118,9 +124,11 @@ bool CN105Climate::is_operating()
     return currentStatus.operating;
 }
 
-void CN105Climate::setupUART()
-{
-    log_info_uint32(TAG, "Initializing UART with baud rate: ", this->parent_->get_baud_rate());
+
+// SERIAL_8E1
+void CN105Climate::setupUART() {
+
+    log_info_uint32(TAG, "setupUART() with baudrate ", this->parent_->get_baud_rate());
     this->setHeatpumpConnected(false);
     this->isUARTConnected_ = false;
 
